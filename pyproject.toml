@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "local-decoders"
+version = "0.1.0"
+description = "JAX implementations of the Local Memory cellular-automaton decoders"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "jax>=0.4.30",
+  "matplotlib>=3.8",
+  "numba>=0.60",
+  "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.setuptools]
+packages = ["code_capacity", "phenomenological"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

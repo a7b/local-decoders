@@ -28,7 +28,7 @@ local-decoders/
 Code-capacity simulations: uniform depolarizing noise is applied to the qubits, the
 syndromes are measured perfectly, and the local cellular automaton (CA) decoder runs until either all nontrivial syndromes are cleared or a maximum number of steps is reached. The decoder is then checked for logical error.
 
-This folder contains our hand-designed CA rules (as opposed to those that arise from our general construction for any translation invariant Pauli stabilizer code) for locally decoding
+This folder contains our hand-designed CA rules (as opposed to those that arise from our general construction for any translation-invariant Pauli stabilizer code) for locally decoding
 
 - the **1D repetition code** (`repetition_ca_jax.py`),
 - the **2D toric code** (`toric_ca_rgb.py`),

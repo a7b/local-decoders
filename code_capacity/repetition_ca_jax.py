@@ -78,11 +78,11 @@ def run_single_trajectory_while(key, L, p, max_steps):
     
     qubits, m_grid, step_count = final_state
     
-    # Check 1: Did we converge?
+    # convergence check
     final_syndrome = calculate_syndrome(qubits)
     converged = jnp.all(final_syndrome == 0)
     
-    # Check 2: Logical error? 
+    # logical check
     logical_error = qubits[0] == 1
     
     # Failure condition: Not converged OR (Converged AND Logical Error)
@@ -108,9 +108,6 @@ def run_monte_carlo(L_values, p_values, num_samples, filename="rep_ca_data.npz")
         # JIT compile the vmapped function specifically for this L
         # vmap over keys
         runner = jax.jit(jax.vmap(partial(run_single_trajectory_while, L=L, max_steps=max_steps, p=None), in_axes=0))
-                 # p is dynamic? No, making p dynamic is fine if passed as arg.
-                 # Actually better to partial L and max_steps, leave p and key.
-                 # Wait, vmap is over KEY. p is scalar.
         
         # Reformulate runner to take (key, p)
         # We need to map over keys, broadcast over p.

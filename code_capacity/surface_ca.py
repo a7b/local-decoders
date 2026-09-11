@@ -1,21 +1,27 @@
 """
 surface_ca.py
 
-Surface code CA decoder with splitting dynamics instead of ml/mr boundary messages.
+Surface code CA decoder with splitting dynamics.
 
 Partition: left half Λ_L = {x ≤ ⌊L/2⌋}, right half Λ_R = {x > ⌊L/2⌋}.
 x indexes axis-0 of the stabilizer grid (shape L+1, L), 0-indexed 0..L.
 
 At multiples of q', first perform the splitting operation and then run the standard
-RGB CA update. At other times, run only the standard RGB CA update:
-  - Left half (x ≤ mid): messages shift left by 1 (x → x-1).
-  - Right half (x > mid): messages shift right by 1 (x → x+1).
-  - Center x=mid (left): syndrome outward, messages COPIED to both mid and mid-1.
-  - Center x=mid+1 (right): syndrome outward, messages COPIED to both mid+1 and mid+2.
-  - Boundary (x=0, x=L): content that would shift beyond the grid is deleted.
+RGB CA update. At other times, run only the standard RGB CA update.
 
-Note: the physical qubit state is unchanged by the splitting step; only the message
-grids (b, r, g) are translated. The syndrome is always recomputed from qubits.
+The splitting operation translates both the syndrome and the messages (b, r, g)
+one step outward, away from the cut between the two halves:
+  - Left half (x ≤ mid): contents shift left by 1 (x → x-1).
+  - Right half (x > mid): contents shift right by 1 (x → x+1).
+  - Center x=mid (left): syndrome moves to mid-1; messages are COPIED, i.e. they
+    appear at mid-1 AND are kept at mid.
+  - Center x=mid+1 (right): syndrome moves to mid+2; messages are COPIED, i.e. they
+    are kept at mid+1 AND appear at mid+2.
+  - Boundary (x=0, x=L): content that would shift beyond the grid is deleted.
+Hence after a splitting step the two center rows carry no syndrome
+(s[mid] = s[mid+1] = 0), opening a defect-free gap along the cut, while messages
+straddling the cut are duplicated so each half keeps a copy.
+
 """
 
 import jax
@@ -35,7 +41,7 @@ MAX_BATCH_SIZE = 2_000
 
 @partial(jax.jit, static_argnames=['L', 'CLOCK_PERIOD'])
 def init_state(key, L, p, CLOCK_PERIOD=CLOCK_PERIOD):
-    """Initialize state (no ml/mr messages)."""
+    """Initialize state."""
     k1, k2 = jax.random.split(key)
     tb_qubits = jax.random.bernoulli(k1, p, shape=(L-1, L-1)).astype(jnp.bool_)
     lr_qubits = jax.random.bernoulli(k2, p, shape=(L, L)).astype(jnp.bool_)
@@ -59,7 +65,7 @@ def calculate_syndrome(tb_qubits, lr_qubits, L):
 
 @partial(jax.jit, static_argnames=['L'])
 def step_ca(state, L):
-    """Standard RGB CA step with erasure at boundaries (no ml/mr)."""
+    """Standard RGB CA step with erasure at boundaries."""
     tb_qubits, lr_qubits, b, r, g, c, step_count, CLOCK_PERIOD = state
 
     s = calculate_syndrome(tb_qubits, lr_qubits, L)
@@ -133,23 +139,32 @@ def step_ca(state, L):
 @partial(jax.jit, static_argnames=['L'])
 def splitting_step(state, L):
     """
-    Splitting step: translate message grids outward from the center (mid = L//2).
+    Splitting step: translate the syndrome and the message grids one site outward
+    from the center (mid = L//2), i.e. left half moves to smaller x and right half
+    to larger x, leaving a defect-free gap along the cut.
 
     For each message channel (b, r, g):
-      - Regular left-half sites x=1..mid-1  →  shift to x-1.
-      - Center x=mid   (left):  syndrome moves to mid-1; messages COPIED to mid-1 AND kept at mid.
-      - Center x=mid+1 (right): syndrome moves to mid+2; messages kept at mid+1 AND COPIED to mid+2.
+      - Regular left-half sites  x=1..mid-1    →  shift to x-1.
+      - Regular right-half sites x=mid+2..L-1  →  shift to x+1.
+      - Center x=mid   (left):  messages COPIED to mid-1 AND kept at mid.
+      - Center x=mid+1 (right): messages kept at mid+1 AND COPIED to mid+2.
       - Content at x=0 or x=L that would shift outside the grid is deleted.
+    Copying at the two center sites (rather than moving) lets each half retain the
+    message state that sat on the cut.
 
-    The syndrome shift is physical: lr_qubits are flipped so that calculate_syndrome
-    returns the translated pattern on the next call. Specifically:
-      - Left half  (i=0..mid-1):  new_lr[i] = old_lr[i] XOR s[i+1]
-        (flipping lr[i] toggles syndromes at padded x=i and x=i+1, moving s[i+1] → s[i])
+    The syndrome is not stored but recomputed from the qubits, so shifting it is a
+    physical operation: lr_qubits are flipped so that calculate_syndrome returns the
+    translated pattern on the next call. Flipping lr[i] toggles the padded syndrome
+    at x=i and x=i+1, so with
+      - Left half  (i=0..mid-1):   new_lr[i] = old_lr[i] XOR s[i+1]
       - Right half (i=mid+1..L-1): new_lr[i] = old_lr[i] XOR s[i]
-        (flipping lr[i] toggles syndromes at padded x=i and x=i+1, moving s[i] → s[i+1])
-      - Center     (i=mid):        unchanged (ensures new_syndrome[mid]=0 and new_syndrome[mid+1]=0)
-    tb_qubits are unchanged (only lr drives x-direction syndrome shifts).
-    This intermediate operation does not advance the clock or step counter.
+      - Center     (i=mid):        unchanged
+    the new syndrome s'[x] = s[x] XOR delta[x] XOR delta[x-1] works out to
+      - s'[x] = s[x+1] for x=1..mid-1      (left half shifted outward)
+      - s'[mid] = s'[mid+1] = 0            (the gap; no flip at i=mid)
+      - s'[x] = s[x-1] for x=mid+2..L-1    (right half shifted outward)
+    so the whole syndrome pattern, not just the two center rows, moves outward; what
+    reaches the padded rows x=0 and x=L is absorbed.
     """
     tb_qubits, lr_qubits, b, r, g, c, step_count, CLOCK_PERIOD = state
     mid = L // 2  # split index in axis-0
